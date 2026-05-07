@@ -1,75 +1,94 @@
 import streamlit as st
+import streamlit.components.v1 as components
 
-# --- INITIALISIERUNG ---
-if 'pos' not in st.session_state:
-    st.session_state.pos = [1, 1]  # Startposition (x, y)
-    st.session_state.inventory = []
-    st.session_state.story_log = ["Willkommen in der Glitch-Welt. Finde den KI-Wächter."]
+# Seite konfigurieren
+st.set_page_config(page_title="Glitch of Olympus", layout="wide")
 
-# Weltkarte (0 = Weg, 1 = Wand, 'G' = Geist/KI)
-WORLD_MAP = [
-    [1, 1, 1, 1, 1, 1],
-    [1, 0, 0, 0, 'G', 1],
-    [1, 0, 1, 1, 0, 1],
-    [1, 0, 0, 0, 0, 1],
-    [1, 1, 1, 1, 1, 1],
-]
+# --- CSS FÜR FULLSCREEN LOOK ---
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; color: white; }
+    [data-testid="stSidebar"] { background-color: #1a1c24; }
+    iframe { border: 2px solid #00ffcc; border-radius: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-def move(direction):
-    x, y = st.session_state.pos
-    new_x, new_y = x, y
-    if direction == "Vorwärts": new_x -= 1
-    if direction == "Rückwärts": new_x += 1
-    if direction == "Links": new_y -= 1
-    if direction == "Rechts": new_y += 1
+# --- SIDEBAR: KI & STORY ---
+with st.sidebar:
+    st.title("📜 Quest-Log")
+    st.info("Ziel: Erreiche den Tempel und sprich mit der KI-Pythia.")
     
-    if WORLD_MAP[new_x][new_y] != 1:
-        st.session_state.pos = [new_x, new_y]
-    else:
-        st.error("Autsch! Du bist gegen eine Wand gelaufen.")
+    st.divider()
+    st.subheader("KI-Chat mit den Göttern")
+    user_input = st.text_input("Deine Nachricht an die Götter:")
+    if st.button("Senden"):
+        # Hier kannst du später deinen OpenAI/HuggingFace API Key einbauen
+        st.write(f"**Hermes (KI):** 'Dein Prompt {user_input} ist syntaktisch korrekt, aber mein göttlicher Buffer ist voll! Bring mir 3 Datenpakete!'")
 
-# --- UI DESIGN ---
-st.title("🕹️ AI 3D-Quest-Adventure")
+# --- DAS 3D-SPIELFELD (Three.js) ---
+# Wir nutzen WASD zur Steuerung innerhalb des Iframes.
+game_code = """
+<div id="ui" style="position: absolute; color: white; padding: 10px; font-family: sans-serif;">
+    WASD zum Bewegen | Ziel: Der goldene Würfel (Tempel-Server)
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x001122);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
 
-col1, col2 = st.columns([2, 1])
+    // Licht
+    const light = new THREE.PointLight(0xffffff, 1, 100);
+    light.position.set(10, 10, 10);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x404040));
 
-with col1:
-    # "3D" Ansicht simulieren (ASCII oder Bild-Generierung)
-    st.subheader("Deine Sicht")
-    x, y = st.session_state.pos
-    current_cell = WORLD_MAP[x][y]
-    
-    if current_cell == 'G':
-        st.write("🤖 **Ein KI-Wächter blockiert den Weg!**")
-        st.info("System: 'Ich lasse dich nur durch, wenn du mir ein Kompliment machst, das meine Schaltkreise zum Schmelzen bringt.'")
-    else:
-        st.code("""
-             ____________________
-            /  ________________  \\
-           /  /                \  \\
-          /  /      [ Weg ]     \  \\
-         /__/____________________\__\\
-        """, language="text")
+    // Boden (Die Simulationsebene)
+    const grid = new THREE.GridHelper(100, 50, 0x00ffcc, 0x444444);
+    scene.add(grid);
 
-with col2:
-    st.subheader("Steuerung")
-    c1, c2, c3 = st.columns(3)
-    with c2: st.button("⬆️", on_click=move, args=("Vorwärts",))
-    with c1: st.button("⬅️", on_click=move, args=("Links",))
-    with c3: st.button("➡️", on_click=move, args=("Rechts",))
-    with c2: st.button("⬇️", on_click=move, args=("Rückwärts",))
+    // Der "Tempel" (Ein goldener Monolith)
+    const geometry = new THREE.BoxGeometry(2, 5, 2);
+    const material = new THREE.MeshPhongMaterial({ color: 0xffd700 });
+    const temple = new THREE.Mesh(geometry, material);
+    temple.position.set(0, 2.5, -20);
+    scene.add(temple);
 
-# --- KI INTERAKTION ---
-st.divider()
-if current_cell == 'G':
-    user_input = st.text_input("Was sagst du zur KI?")
-    if st.button("Überzeugen"):
-        # HIER: KI-API einbinden. Für den Test:
-        if len(user_input) > 10:
-            st.success("KI: 'Oh... das war schmeichelhaft. Du darfst passieren!'")
-            WORLD_MAP[x][y] = 0 # Weg frei machen
-        else:
-            st.warning("KI: 'Zu schwach. Versuchs nochmal!'")
+    camera.position.set(0, 1.6, 5);
 
-st.sidebar.markdown(f"**Position:** {st.session_state.pos}")
-st.sidebar.markdown(f"**Inventar:** {st.session_state.inventory}")
+    // Steuerung
+    const keys = {};
+    window.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
+    window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+
+    function updatePlayer() {
+        const speed = 0.1;
+        if (keys['w']) camera.position.z -= speed;
+        if (keys['s']) camera.position.z += speed;
+        if (keys['a']) camera.position.x -= speed;
+        if (keys['d']) camera.position.x += speed;
+        
+        // Kollisions-Check (Simpel)
+        if (camera.position.z < -18 && Math.abs(camera.position.x) < 2) {
+            document.getElementById('ui').innerHTML = "SYSTEM: Kontakt mit Tempel-Server hergestellt! Schau in die Sidebar!";
+        }
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        updatePlayer();
+        temple.rotation.y += 0.01;
+        renderer.render(scene, camera);
+    }
+    animate();
+</script>
+<style> body { margin: 0; overflow: hidden; } </style>
+"""
+
+components.html(game_code, height=600)
+
+st.markdown("---")
+st.caption("Nutze die **WASD** Tasten im Fenster oben, um dich zu bewegen. Klicke einmal in das 3D-Feld, damit die Steuerung aktiv wird.")
