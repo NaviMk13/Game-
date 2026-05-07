@@ -1,94 +1,184 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-# Seite konfigurieren
-st.set_page_config(page_title="Glitch of Olympus", layout="wide")
+st.set_page_config(page_title="Antike KI-Simulation", layout="wide")
 
-# --- CSS FÜR FULLSCREEN LOOK ---
+# Verstecke Streamlit-Elemente für echtes Fullscreen-Feeling
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; color: white; }
-    [data-testid="stSidebar"] { background-color: #1a1c24; }
-    iframe { border: 2px solid #00ffcc; border-radius: 10px; }
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .block-container {padding: 0px;}
+    iframe {border: none;}
     </style>
     """, unsafe_allow_html=True)
 
-# --- SIDEBAR: KI & STORY ---
-with st.sidebar:
-    st.title("📜 Quest-Log")
-    st.info("Ziel: Erreiche den Tempel und sprich mit der KI-Pythia.")
-    
-    st.divider()
-    st.subheader("KI-Chat mit den Göttern")
-    user_input = st.text_input("Deine Nachricht an die Götter:")
-    if st.button("Senden"):
-        # Hier kannst du später deinen OpenAI/HuggingFace API Key einbauen
-        st.write(f"**Hermes (KI):** 'Dein Prompt {user_input} ist syntaktisch korrekt, aber mein göttlicher Buffer ist voll! Bring mir 3 Datenpakete!'")
-
-# --- DAS 3D-SPIELFELD (Three.js) ---
-# Wir nutzen WASD zur Steuerung innerhalb des Iframes.
-game_code = """
-<div id="ui" style="position: absolute; color: white; padding: 10px; font-family: sans-serif;">
-    WASD zum Bewegen | Ziel: Der goldene Würfel (Tempel-Server)
-</div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x001122);
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
-
-    // Licht
-    const light = new THREE.PointLight(0xffffff, 1, 100);
-    light.position.set(10, 10, 10);
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0x404040));
-
-    // Boden (Die Simulationsebene)
-    const grid = new THREE.GridHelper(100, 50, 0x00ffcc, 0x444444);
-    scene.add(grid);
-
-    // Der "Tempel" (Ein goldener Monolith)
-    const geometry = new THREE.BoxGeometry(2, 5, 2);
-    const material = new THREE.MeshPhongMaterial({ color: 0xffd700 });
-    const temple = new THREE.Mesh(geometry, material);
-    temple.position.set(0, 2.5, -20);
-    scene.add(temple);
-
-    camera.position.set(0, 1.6, 5);
-
-    // Steuerung
-    const keys = {};
-    window.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
-    window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
-
-    function updatePlayer() {
-        const speed = 0.1;
-        if (keys['w']) camera.position.z -= speed;
-        if (keys['s']) camera.position.z += speed;
-        if (keys['a']) camera.position.x -= speed;
-        if (keys['d']) camera.position.x += speed;
-        
-        // Kollisions-Check (Simpel)
-        if (camera.position.z < -18 && Math.abs(camera.position.x) < 2) {
-            document.getElementById('ui').innerHTML = "SYSTEM: Kontakt mit Tempel-Server hergestellt! Schau in die Sidebar!";
+game_html = """
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+        #gui { position: absolute; top: 20px; left: 20px; z-index: 100; color: white; pointer-events: none; }
+        #chat-window { 
+            position: absolute; bottom: 20px; left: 20px; width: 300px; 
+            background: rgba(0,0,0,0.7); border: 1px solid #d4af37; 
+            padding: 10px; border-radius: 5px; pointer-events: auto;
         }
-    }
+        #chat-input { width: 90%; background: #222; color: #d4af37; border: 1px solid #d4af37; padding: 5px; }
+        #crosshair { 
+            position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; 
+            border: 2px solid white; border-radius: 50%; transform: translate(-50%, -50%); 
+        }
+    </style>
+</head>
+<body>
+    <div id="gui">
+        <h1 style="color: #d4af37; margin: 0;">🏺 Project Odyssey-AI</h1>
+        <p>Klick ins Bild zum Starten | WASD = Bewegen | SPACE = Springen</p>
+    </div>
 
-    function animate() {
-        requestAnimationFrame(animate);
-        updatePlayer();
-        temple.rotation.y += 0.01;
-        renderer.render(scene, camera);
-    }
-    animate();
-</script>
-<style> body { margin: 0; overflow: hidden; } </style>
+    <div id="crosshair"></div>
+
+    <div id="chat-window">
+        <div id="messages" style="height: 100px; overflow-y: auto; font-size: 12px; margin-bottom: 5px;">
+            <span style="color: #d4af37;">Orakel:</span> Willkommen in der Simulation, Sterblicher...
+        </div>
+        <input type="text" id="chat-input" placeholder="Frag die KI...">
+    </div>
+
+    <script>
+        let scene, camera, renderer, velocity, moveForward, moveBackward, moveLeft, moveRight, canJump;
+        let prevTime = performance.now();
+        const objects = [];
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb); // Griechischer Himmel
+            scene.fog = new THREE.Fog(0x87ceeb, 0, 750);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            // Licht
+            const light = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
+            scene.add(light);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            dirLight.position.set(10, 10, 10);
+            scene.add(dirLight);
+
+            // Pointer Lock Steuerung (Umgucken wie AC)
+            const controls = new function() {
+                this.enabled = false;
+                document.body.addEventListener('click', () => {
+                    document.body.requestPointerLock();
+                });
+            };
+
+            // Physik-Variablen
+            velocity = new THREE.Vector3();
+            moveForward = false; moveBackward = false; moveLeft = false; moveRight = false; canJump = false;
+
+            // Boden (Sand/Stein Optik)
+            const floorGeo = new THREE.PlaneGeometry(2000, 2000, 100, 100);
+            const floorMat = new THREE.MeshPhongMaterial({ color: 0xdeb887 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            // Antike Welt-Elemente (Säulen)
+            for (let i = 0; i < 50; i++) {
+                const colGeo = new THREE.CylinderGeometry(1, 1, 10, 32);
+                const colMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+                const col = new THREE.Mesh(colGeo, colMat);
+                col.position.set(Math.random()*200 - 100, 5, Math.random()*200 - 100);
+                scene.add(col);
+                objects.push(col);
+            }
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Event Listeners
+            const onKeyDown = (e) => {
+                switch(e.code) {
+                    case 'KeyW': moveForward = true; break;
+                    case 'KeyS': moveBackward = true; break;
+                    case 'KeyA': moveLeft = true; break;
+                    case 'KeyD': moveRight = true; break;
+                    case 'Space': if (canJump) velocity.y += 15; canJump = false; break;
+                }
+            };
+            const onKeyUp = (e) => {
+                switch(e.code) {
+                    case 'KeyW': moveForward = false; break;
+                    case 'KeyS': moveBackward = false; break;
+                    case 'KeyA': moveLeft = false; break;
+                    case 'KeyD': moveRight = false; break;
+                }
+            };
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+
+            // Mouse Look
+            document.addEventListener('mousemove', (e) => {
+                if (document.pointerLockElement === document.body) {
+                    camera.rotation.y -= e.movementX * 0.002;
+                    camera.rotation.x -= e.movementY * 0.002;
+                    camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+                }
+            });
+            camera.rotation.order = "YXZ";
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+
+            velocity.x -= velocity.x * 10.0 * delta;
+            velocity.z -= velocity.z * 10.0 * delta;
+            velocity.y -= 9.8 * 4.0 * delta; // Gravitation
+
+            if (moveForward) velocity.z -= 150.0 * delta;
+            if (moveBackward) velocity.z += 150.0 * delta;
+            if (moveLeft) velocity.x -= 150.0 * delta;
+            if (moveRight) velocity.x += 150.0 * delta;
+
+            camera.translateX(velocity.x * delta);
+            camera.translateY(velocity.y * delta);
+            camera.translateZ(velocity.z * delta);
+
+            if (camera.position.y < 1.6) {
+                velocity.y = 0;
+                camera.position.y = 1.6;
+                canJump = true;
+            }
+
+            renderer.render(scene, camera);
+            prevTime = time;
+        }
+
+        // Chat Logik
+        document.getElementById('chat-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                const msg = this.value;
+                document.getElementById('messages').innerHTML += "<div><span style='color:#00ffcc'>Du:</span> " + msg + "</div>";
+                this.value = '';
+                // Hier könnte man den Text an Streamlit zurückgeben
+                setTimeout(() => {
+                    document.getElementById('messages').innerHTML += "<div><span style='color:#d4af37'>Orakel:</span> " + msg.length + " Zeichen? Interessantes Opfer...</div>";
+                }, 1000);
+            }
+        });
+    </script>
+</body>
+</html>
 """
 
-components.html(game_code, height=600)
-
-st.markdown("---")
-st.caption("Nutze die **WASD** Tasten im Fenster oben, um dich zu bewegen. Klicke einmal in das 3D-Feld, damit die Steuerung aktiv wird.")
+components.html(game_html, height=800)
