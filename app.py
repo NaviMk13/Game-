@@ -1,16 +1,19 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Antike KI-Simulation", layout="wide")
+st.set_page_config(page_title="Ancient AI World", layout="wide")
 
-# Verstecke Streamlit-Elemente für echtes Fullscreen-Feeling
+# CSS für kompletten Fullscreen und UI-Overlays
 st.markdown("""
     <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .block-container {padding: 0px;}
-    iframe {border: none;}
+    .stApp { margin: 0; padding: 0; }
+    iframe { width: 100vw; height: 100vh; position: fixed; top: 0; left: 0; }
+    #chat-overlay {
+        position: fixed; bottom: 30px; left: 30px; width: 350px;
+        background: rgba(10, 10, 10, 0.85); border: 2px solid #d4af37;
+        border-radius: 15px; padding: 15px; z-index: 1000; color: white;
+        font-family: 'Georgia', serif; box-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -19,113 +22,118 @@ game_html = """
 <html>
 <head>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <style>
-        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
-        #gui { position: absolute; top: 20px; left: 20px; z-index: 100; color: white; pointer-events: none; }
-        #chat-window { 
-            position: absolute; bottom: 20px; left: 20px; width: 300px; 
-            background: rgba(0,0,0,0.7); border: 1px solid #d4af37; 
-            padding: 10px; border-radius: 5px; pointer-events: auto;
-        }
-        #chat-input { width: 90%; background: #222; color: #d4af37; border: 1px solid #d4af37; padding: 5px; }
-        #crosshair { 
-            position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; 
-            border: 2px solid white; border-radius: 50%; transform: translate(-50%, -50%); 
-        }
-    </style>
+    <style> body { margin: 0; overflow: hidden; } </style>
 </head>
 <body>
-    <div id="gui">
-        <h1 style="color: #d4af37; margin: 0;">🏺 Project Odyssey-AI</h1>
-        <p>Klick ins Bild zum Starten | WASD = Bewegen | SPACE = Springen</p>
-    </div>
-
-    <div id="crosshair"></div>
-
-    <div id="chat-window">
-        <div id="messages" style="height: 100px; overflow-y: auto; font-size: 12px; margin-bottom: 5px;">
-            <span style="color: #d4af37;">Orakel:</span> Willkommen in der Simulation, Sterblicher...
+    <div id="chat-overlay">
+        <h3 style="margin-top:0; color:#d4af37;">📜 Das Orakel von Streamlit</h3>
+        <div id="messages" style="height: 120px; overflow-y: auto; font-size: 14px;">
+            Willkommen, Reisender. Bewege dich mit WASD und schau dich mit der Maus um. Springe mit der Leertaste über die Ruinen.
         </div>
-        <input type="text" id="chat-input" placeholder="Frag die KI...">
+        <input type="text" id="chat-input" style="width:100%; background:#222; border:1px solid #d4af37; color:white; padding:5px; margin-top:10px;" placeholder="Sprich mit der Welt...">
     </div>
 
     <script>
         let scene, camera, renderer, velocity, moveForward, moveBackward, moveLeft, moveRight, canJump;
         let prevTime = performance.now();
-        const objects = [];
-
+        
         init();
         animate();
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x87ceeb); // Griechischer Himmel
-            scene.fog = new THREE.Fog(0x87ceeb, 0, 750);
+            scene.background = new THREE.Color(0xaaccff);
+            scene.fog = new THREE.FogExp2(0xaaccff, 0.002);
 
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            
-            // Licht
-            const light = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
-            scene.add(light);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
-            dirLight.position.set(10, 10, 10);
-            scene.add(dirLight);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.y = 2;
 
-            // Pointer Lock Steuerung (Umgucken wie AC)
-            const controls = new function() {
-                this.enabled = false;
-                document.body.addEventListener('click', () => {
-                    document.body.requestPointerLock();
-                });
-            };
+            // --- LICHT & SCHATTEN ---
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.5); 
+            scene.add(ambientLight);
 
-            // Physik-Variablen
-            velocity = new THREE.Vector3();
-            moveForward = false; moveBackward = false; moveLeft = false; moveRight = false; canJump = false;
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            sunLight.position.set(50, 100, 50);
+            sunLight.castShadow = true;
+            // Schatten-Qualität optimieren
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.left = -100;
+            sunLight.shadow.camera.right = 100;
+            sunLight.shadow.camera.top = 100;
+            sunLight.shadow.camera.bottom = -100;
+            scene.add(sunLight);
 
-            // Boden (Sand/Stein Optik)
-            const floorGeo = new THREE.PlaneGeometry(2000, 2000, 100, 100);
-            const floorMat = new THREE.MeshPhongMaterial({ color: 0xdeb887 });
+            // --- WELTDESIGN ---
+            // Boden mit Textur-Farbe
+            const floorGeo = new THREE.PlaneGeometry(1000, 1000);
+            const floorMat = new THREE.MeshPhongMaterial({ color: 0x3a5f0b }); // Dunkelgrünes Gras
             const floor = new THREE.Mesh(floorGeo, floorMat);
             floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
             scene.add(floor);
 
-            // Antike Welt-Elemente (Säulen)
-            for (let i = 0; i < 50; i++) {
-                const colGeo = new THREE.CylinderGeometry(1, 1, 10, 32);
-                const colMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
-                const col = new THREE.Mesh(colGeo, colMat);
-                col.position.set(Math.random()*200 - 100, 5, Math.random()*200 - 100);
-                scene.add(col);
-                objects.push(col);
+            // Bäume & Statuen generieren
+            for (let i = 0; i < 150; i++) {
+                const x = Math.random() * 400 - 200;
+                const z = Math.random() * 400 - 200;
+                if (Math.abs(x) < 10 && Math.abs(z) < 10) continue; // Startplatz frei lassen
+
+                if (Math.random() > 0.2) {
+                    // Ein Baum (Zypresse)
+                    const trunkGeo = new THREE.CylinderGeometry(0.2, 0.2, 2);
+                    const leafGeo = new THREE.ConeGeometry(1, 8, 8);
+                    const matTrunk = new THREE.MeshPhongMaterial({color: 0x4b3621});
+                    const matLeaf = new THREE.MeshPhongMaterial({color: 0x0b3d0b});
+                    
+                    const trunk = new THREE.Mesh(trunkGeo, matTrunk);
+                    const leaf = new THREE.Mesh(leafGeo, matLeaf);
+                    trunk.position.set(x, 1, z);
+                    leaf.position.set(x, 5, z);
+                    trunk.castShadow = true; leaf.castShadow = true;
+                    scene.add(trunk); scene.add(leaf);
+                } else {
+                    // Eine "Statue" (Antiker Monolith)
+                    const statGeo = new THREE.BoxGeometry(2, 6, 2);
+                    const statMat = new THREE.MeshPhongMaterial({color: 0xcccccc});
+                    const statue = new THREE.Mesh(statGeo, statMat);
+                    statue.position.set(x, 3, z);
+                    statue.rotation.y = Math.random() * Math.PI;
+                    statue.castShadow = true;
+                    scene.add(statue);
+                }
             }
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
-            // Event Listeners
-            const onKeyDown = (e) => {
+            // --- STEUERUNG ---
+            velocity = new THREE.Vector3();
+            moveForward = false; moveBackward = false; moveLeft = false; moveRight = false; canJump = false;
+
+            document.addEventListener('click', () => document.body.requestPointerLock());
+            
+            document.addEventListener('keydown', (e) => {
                 switch(e.code) {
                     case 'KeyW': moveForward = true; break;
                     case 'KeyS': moveBackward = true; break;
                     case 'KeyA': moveLeft = true; break;
                     case 'KeyD': moveRight = true; break;
-                    case 'Space': if (canJump) velocity.y += 15; canJump = false; break;
+                    case 'Space': if (canJump) velocity.y += 12; canJump = false; break;
                 }
-            };
-            const onKeyUp = (e) => {
+            });
+            document.addEventListener('keyup', (e) => {
                 switch(e.code) {
                     case 'KeyW': moveForward = false; break;
                     case 'KeyS': moveBackward = false; break;
                     case 'KeyA': moveLeft = false; break;
                     case 'KeyD': moveRight = false; break;
                 }
-            };
-            document.addEventListener('keydown', onKeyDown);
-            document.addEventListener('keyup', onKeyUp);
+            });
 
-            // Mouse Look
             document.addEventListener('mousemove', (e) => {
                 if (document.pointerLockElement === document.body) {
                     camera.rotation.y -= e.movementX * 0.002;
@@ -143,20 +151,25 @@ game_html = """
 
             velocity.x -= velocity.x * 10.0 * delta;
             velocity.z -= velocity.z * 10.0 * delta;
-            velocity.y -= 9.8 * 4.0 * delta; // Gravitation
+            velocity.y -= 30.0 * delta; // Gravitation
 
-            if (moveForward) velocity.z -= 150.0 * delta;
-            if (moveBackward) velocity.z += 150.0 * delta;
-            if (moveLeft) velocity.x -= 150.0 * delta;
-            if (moveRight) velocity.x += 150.0 * delta;
+            let dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            dir.y = 0; dir.normalize();
+            let side = new THREE.Vector3().crossVectors(camera.up, dir).normalize();
 
-            camera.translateX(velocity.x * delta);
-            camera.translateY(velocity.y * delta);
-            camera.translateZ(velocity.z * delta);
+            if (moveForward) velocity.add(dir.multiplyScalar(80 * delta));
+            if (moveBackward) velocity.sub(dir.multiplyScalar(80 * delta));
+            if (moveLeft) velocity.add(side.multiplyScalar(80 * delta));
+            if (moveRight) velocity.sub(side.multiplyScalar(80 * delta));
 
-            if (camera.position.y < 1.6) {
+            camera.position.x += velocity.x * delta;
+            camera.position.z += velocity.z * delta;
+            camera.position.y += velocity.y * delta;
+
+            if (camera.position.y < 2) {
                 velocity.y = 0;
-                camera.position.y = 1.6;
+                camera.position.y = 2;
                 canJump = true;
             }
 
@@ -164,16 +177,16 @@ game_html = """
             prevTime = time;
         }
 
-        // Chat Logik
+        // Chat Input Logic
         document.getElementById('chat-input').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') {
-                const msg = this.value;
-                document.getElementById('messages').innerHTML += "<div><span style='color:#00ffcc'>Du:</span> " + msg + "</div>";
+                const text = this.value;
+                document.getElementById('messages').innerHTML += "<div><b style='color:#00ffcc'>Du:</b> "+text+"</div>";
                 this.value = '';
-                // Hier könnte man den Text an Streamlit zurückgeben
+                // Hier könnte man die Antwort einer KI simulieren
                 setTimeout(() => {
-                    document.getElementById('messages').innerHTML += "<div><span style='color:#d4af37'>Orakel:</span> " + msg.length + " Zeichen? Interessantes Opfer...</div>";
-                }, 1000);
+                    document.getElementById('messages').innerHTML += "<div><b style='color:#d4af37'>Orakel:</b> Deine Worte hallen durch die Hallen von Hades...</div>";
+                }, 800);
             }
         });
     </script>
@@ -181,4 +194,4 @@ game_html = """
 </html>
 """
 
-components.html(game_html, height=800)
+components.html(game_html, height=1000)
